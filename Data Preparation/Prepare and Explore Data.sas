@@ -1,3 +1,6 @@
+cas;
+caslib _all_ assign;
+
 /************************************************************************/
 /* This example illustrates various tools for assaying, assessing,      */
 /* modifying and preparing data prior to modeling. It uses HMEQ         */
@@ -21,20 +24,19 @@
 /* Setup and initialize for later use in the program                    */
 /************************************************************************/
 /* Define a CAS engine libref for CAS in-memory data tables */
-libname mycaslib cas caslib=casuser;
 
 /* Specify the data set names */
-%let sasdata          = sampsio.hmeq;                     
-%let casdata          = mycaslib.hmeq;
+%let sasdata          = INPUT.CREDITWRITEOFF;                     
+%let casdata          = INPUT.CREDITWRITEOFF;
 
 /* Specify the data set inputs and target */
-%let class_inputs    = reason job;
-%let interval_inputs = clage clno debtinc loan mortdue value yoj derog delinq ninq; 
-%let target          = bad;
+%let class_inputs    = atmuser CARD_TYPE ecomuser okmail;
+%let interval_inputs = acctcd_n age behave_scr CREDIT_LIM; 
+%let target          = writeoff;
 
-%let im_class_inputs    = reason job;
-%let im_interval_inputs = im_clage clno im_debtinc loan mortdue value im_yoj im_ninq derog im_delinq; 
-%let cluster_inputs     = im_clage im_debtinc value;
+%let im_class_inputs    = atmuser CARD_TYPE ecomuser okmail;
+%let im_interval_inputs = im_acctcd_n im_age im_behave_scr im_CREDIT_LIM; 
+
 
 /* Specify a folder path to write the temporary output files */
 %let outdir = &_SASWORKINGDIR;
@@ -46,7 +48,7 @@ libname mycaslib cas caslib=casuser;
 /************************************************************************/
 %if not %sysfunc(exist(&casdata)) %then %do;
   proc casutil;
-    load data=&sasdata casout="hmeq" outcaslib=casuser;
+    load data=&sasdata casout="creditwriteoff" outcaslib=input;
   run;
 %end;
 
@@ -54,15 +56,15 @@ libname mycaslib cas caslib=casuser;
 /************************************************************************/
 /* Explore the data and plot missing values                             */
 /************************************************************************/
-proc cardinality data=&casdata outcard=mycaslib.data_card;
+proc cardinality data=&casdata outcard=input.data_card;
 run;
 
-proc print data=mycaslib.data_card(where=(_nmiss_>0));
+proc print data=input.data_card(where=(_nmiss_>0));
   title "Data Summary";
 run;
 
 data data_missing;
-  set mycaslib.data_card (where=(_nmiss_>0) keep=_varname_ _nmiss_ _nobs_);
+  set input.data_card (where=(_nmiss_>0) keep=_varname_ _nmiss_ _nobs_);
   _percentmiss_ = (_nmiss_/_nobs_)*100;
   label _percentmiss_ = 'Percent Missing';
 run;
@@ -78,11 +80,11 @@ title;
 /* Impute missing values                                                */
 /************************************************************************/
 proc varimpute data=&casdata;
-  input clage /ctech=mean;
-  input delinq /ctech=median;
-  input ninq /ctech=random;
-  input debtinc yoj /ctech=value cvalues=50,100;
-  output out=mycaslib.hmeq_prepped copyvars=(_ALL_);
+  input acctcd_n /ctech=mean;
+  input age /ctech=median;
+  input behave_scr /ctech=random;
+  input CREDIT_LIM /ctech=mean ;
+  output out=input.creditwriteoff_prepped copyvars=(_ALL_);
   code file="&outdir./impute_score.sas";
 run;
     
@@ -91,7 +93,7 @@ run;
 /* Identify variables that explain variance in the target               */
 /************************************************************************/
 /* Discriminant analysis for class target */
-proc varreduce data=mycaslib.hmeq_prepped technique=discriminantanalysis;  
+proc varreduce data=input.creditwriteoff_prepped technique=discriminantanalysis;  
   class &target &im_class_inputs.;
   reduce supervised &target=&im_class_inputs. &im_interval_inputs. / maxeffects=8;
   ods output selectionsummary=summary;	     
@@ -121,22 +123,6 @@ proc sgplot data=out_iter_trans;
 run;
 title;
 
-
-/************************************************************************/
-/* Perform a cluster analysis based on demographic inputs               */
-/************************************************************************/
-proc kclus data=mycaslib.hmeq_prepped standardize=std distance=euclidean maxclusters=6;
-  input &cluster_inputs. / level=interval;
-run;
-
-
-/************************************************************************/
-/* Perform a principal components analysis on the interval valued       */ 
-/* input variables                                                      */     
-/************************************************************************/
-proc pca data=mycaslib.hmeq_prepped plots=(scree);
-  var &im_interval_inputs;
-run;
 
 
 
